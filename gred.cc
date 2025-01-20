@@ -12,6 +12,7 @@ using namespace std;
 typedef pair<int, int> P;
 typedef vector<vector<bool>> Matrix;
 typedef pair<P, int>    PI;
+typedef vector<P>       VP;
 typedef vector<PI>     VPI;
 typedef pair<P, P>      PP;
 typedef vector<PP>     VPP;
@@ -21,10 +22,9 @@ const PP UNDEF({-1, -1}, {-1, -1});
 ifstream in;
 clock_t start;
 int  W, N;
-int L = INT_MAX;
-
+int L = 0;
 int C = 0;
-int blank = INT_MAX;
+double extra_time = 0;
 VPI shapes;
 VPP  sol;
 
@@ -44,8 +44,7 @@ void read_instance(const char* file) {
   //Pieces are ordered by area as it reduces execution time
   sort(shapes.begin(),shapes.end(), [](const auto &a, const auto &b){
     return (a.first.first*a.first.second)>(b.first.first*b.first.second);
-  }
-  );
+  });
 }
 
 
@@ -60,7 +59,7 @@ void write_instance(const char* file){
     clock_t end = clock();
     double duration = double(end-start)/CLOCKS_PER_SEC;
     out.setf(ios::fixed);
-    out.precision(1);
+    out.precision(3);
     out << duration << endl << L << endl;
     for( PP coords : sol){
         out << coords.first.first << ' ' << coords.first.second << ' ';
@@ -86,17 +85,6 @@ bool inside(Matrix& graella,const P coord, const P shape){
         }
     }
     return true;
-}
-
-bool validPlacement(Matrix& graella, const P coord, const P shape){
-    /*Checks if the placement of the piece is optimal. This requires, following the same order as the code:
-    a) That the piece can be placed
-    b) That the piece can not be placed in the space above it (y-1)
-    c) That the piece can not be placed in the space behind it (x-1)
-    */
-    return (inside(graella,coord,shape) and 
-    not inside(graella,make_pair(coord.first,coord.second-1),shape) and 
-    not inside(graella,make_pair(coord.first-1,coord.second),shape));
 }
 
 void editarMat(Matrix& graella, const P coord, const P shape, const bool entry){
@@ -139,78 +127,40 @@ P coordenada(Matrix& graella, P coord, int x){
     return coord;
 }
 
-
-void exhaustive(const char* file, Matrix& graella, P coord, int n, int l_par, int k, int par_blank){
-    /*Recursive function that finds the best configuration of pieces in the board such that
-    it minimizes the height of the configuration. The recursion is run from the upper-left corner
-    of the board and it shifts from left to right and from top to bottom. 
-
-    INPUT: file (address of the file into which to add the answer), graella (Matrix of the board),
-    coord (current pair of coordenates on which to try to add a piece), n (number of pieces added to the board),
-    l_par (height of the current partial solution), k (area of the pieces not yet placed)
-    */
-
-   //The following are prunes that aim to reduce execution time
-
-    if(l_par>=L or par_blank > blank) return;
-    if(k/W + coord.second >= L) return;
-
-    //If all places have been placed then a better solution has been found; this new solution is recorded.
-    if(n==N){
-        blank = par_blank;
-        L = l_par;
-        write_instance(file);
-        return;
-    }
-    else{
-        for(int i=0;i<int(shapes.size());++i){
-            //Check if there are still available pieces of this type
-            if(shapes[i].second != 0){
-                
-                int minim = min(shapes[i].first.first,shapes[i].first.second);
-                int maxim = max(shapes[i].first.first,shapes[i].first.second);
-
-                //Checks both orientations of the shape, and preferences the one with the least height
-                if(validPlacement(graella,coord,make_pair(maxim,minim))){
-                    //Update the variables
-                    -- shapes[i].second;
+void greedy(){
+    Matrix graella (W,vector<bool>(C,false));
+    P coord = make_pair(0,0);
+    while(N!=0){
+        bool placed = false;
+        for(PI& shape : shapes){
+            if(shape.second!=0){
+                int maxim = max(shape.first.first,shape.first.second);
+                int minim = min(shape.first.first,shape.first.second);
+                if(inside(graella,coord,make_pair(maxim,minim))){
                     editarMat(graella,coord,make_pair(maxim,minim),true);
-                    P newcoord = coordenada(graella, coord,maxim);
-                    int newl_par = max(l_par, coord.second + minim);
-                    addtosol(coord, make_pair(maxim,minim), true);
-
-                    //Follow the recursion
-                    exhaustive(file,graella, newcoord, n+1, newl_par, k-minim*maxim, par_blank);
-
-                    //Undo the changed done before
-                    ++ shapes[i].second;
-                    editarMat(graella,coord,make_pair(maxim,minim),false);
-                    addtosol(coord, make_pair(minim,maxim),false);
+                    addtosol(coord,make_pair(maxim,minim),true);
+                    L = max(L,coord.second+minim);
+                    coord = coordenada(graella,coord,maxim);
+                    --shape.second;
+                    --N;
+                    placed = true;
+                    break;
                 }
-                if(minim!= maxim and validPlacement(graella,coord,make_pair(minim,maxim))){
-                    //Update the variables
-                    -- shapes[i].second;
+                else if(inside(graella, coord, make_pair(minim,maxim))){
                     editarMat(graella,coord,make_pair(minim,maxim),true);
-                    P newcoord = coordenada(graella, coord,minim);
-                    int newl_par = max(l_par, coord.second + maxim);
-                    addtosol(coord, make_pair(minim,maxim), true);
-
-                    //Execute recursion
-                    exhaustive(file,graella, newcoord, n+1, newl_par, k-minim*maxim, par_blank);
-
-                    //Undo the changes done to the variables
-                    ++ shapes[i].second;
-                    editarMat(graella,coord,make_pair(minim,maxim),false);
-                    addtosol(coord, make_pair(minim,maxim), false);
+                    addtosol(coord,make_pair(minim,maxim),true);
+                    L = max(L,coord.second+maxim);
+                    coord = coordenada(graella,coord,minim);
+                    --shape.second;
+                    placed = true;
+                    --N;
+                    break;
                 }
             }
         }
-        /*If no piece has been added jump to the next available coordinate
-        2 prunes have been added to reduce execution time:
-        a) If the line before has been left empty, prune
-        b) If it hasn't been placed in the first coordinate (0,0), prune
-        */
-       if(coord.first+coord.second != 0) {++par_blank; exhaustive(file,graella,coordenada(graella, coord,1), n, l_par,k, par_blank);}
+        if(not placed){
+            coord = coordenada(graella,coord,1);
+        }
     }
 }
 
@@ -226,11 +176,7 @@ int main(int argc, char** argv) {
 
   read_instance(argv[1]);
 
-  Matrix graella (W,vector<bool>(C,false));
-  int k = 0;
-  for(PI m: shapes){
-    k += (m.first.first*m.first.second)*m.second;
-  }
+  greedy();
 
-  exhaustive(argv[2], graella, make_pair(0,0),0,0,k,0);
+  write_instance(argv[2]);
 }
